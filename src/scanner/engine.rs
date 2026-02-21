@@ -7,9 +7,11 @@ use crate::output::text::TextFormatter;
 use crate::output::ScanResult;
 use crate::scanner::file_scanner::FileScanner;
 use crate::scanner::filter::PathFilter;
+use crate::scanner::git_scanner::{GitScanner, HistoryOptions};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
+use std::time::Instant;
 
 pub struct ScanEngine {
     min_severity: Severity,
@@ -21,6 +23,12 @@ pub struct ScanEngine {
     includes: Vec<String>,
     threads: Option<usize>,
     output_path: Option<std::path::PathBuf>,
+    // Git options
+    git_history: bool,
+    staged: bool,
+    diff: Option<String>,
+    since: Option<String>,
+    commits: Option<usize>,
 }
 
 impl ScanEngine {
@@ -41,6 +49,11 @@ impl ScanEngine {
             includes: args.include.clone(),
             threads: args.threads,
             output_path: args.output.clone(),
+            git_history: args.git_history,
+            staged: args.staged,
+            diff: args.diff.clone(),
+            since: args.since.clone(),
+            commits: args.commits,
         }
     }
 
@@ -48,6 +61,11 @@ impl ScanEngine {
         // Handle stdin
         if path.to_string_lossy() == "-" {
             return self.scan_stdin();
+        }
+
+        // Handle git modes
+        if self.staged || self.git_history || self.diff.is_some() {
+            return self.scan_git(path);
         }
 
         // Build scanner
@@ -68,6 +86,38 @@ impl ScanEngine {
         };
 
         // Output
+        self.output_result(&result)?;
+
+        Ok(result.has_findings())
+    }
+
+    fn scan_git(&self, path: &Path) -> io::Result<bool> {
+        let start = Instant::now();
+
+        let git_scanner = GitScanner::new(path, self.min_severity).map_err(|e| {
+            io::Error::new(io::ErrorKind::Other, format!("Git error: {}", e))
+        })?;
+
+        let findings = if self.staged {
+            git_scanner.scan_staged()
+        } else if let Some(ref reference) = self.diff {
+            git_scanner.scan_diff(reference)
+        } else {
+            let opts = HistoryOptions {
+                since: self.since.clone(),
+                max_commits: self.commits,
+            };
+            git_scanner.scan_history(&opts)
+        }
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Git error: {}", e)))?;
+
+        let result = ScanResult {
+            findings,
+            files_scanned: 0, // Git mode doesn't count files
+            bytes_scanned: 0,
+            scan_duration: start.elapsed(),
+        };
+
         self.output_result(&result)?;
 
         Ok(result.has_findings())
