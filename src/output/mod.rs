@@ -1,3 +1,4 @@
+pub mod csv;
 pub mod finding;
 pub mod json;
 pub mod sarif;

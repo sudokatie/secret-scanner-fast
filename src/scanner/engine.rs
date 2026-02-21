@@ -1,5 +1,6 @@
 use crate::cli::args::{OutputFormat, ScanArgs, SeverityArg};
 use crate::detection::rules::Severity;
+use crate::output::csv::CsvFormatter;
 use crate::output::json::JsonFormatter;
 use crate::output::sarif::SarifFormatter;
 use crate::output::text::TextFormatter;
@@ -117,34 +118,14 @@ impl ScanEngine {
                 formatter.format(&mut output, result)?;
             }
             OutputFormat::Csv => {
-                self.output_csv(&mut output, result)?;
+                let mut formatter = CsvFormatter::new();
+                if !self.redact {
+                    formatter = formatter.no_redact();
+                }
+                formatter.format(&mut output, result)?;
             }
         }
 
-        Ok(())
-    }
-
-    fn output_csv<W: Write>(&self, w: &mut W, result: &ScanResult) -> io::Result<()> {
-        writeln!(w, "file,line,column,rule_id,severity,matched_value")?;
-        for finding in &result.findings {
-            let value = if self.redact {
-                finding.redacted_match()
-            } else {
-                finding.matched_value.clone()
-            };
-            // Escape CSV values
-            let escaped_value = value.replace('"', "\"\"");
-            writeln!(
-                w,
-                "{},{},{},{},{},\"{}\"",
-                finding.location.file.display(),
-                finding.location.line,
-                finding.location.column,
-                finding.rule_id,
-                finding.severity,
-                escaped_value
-            )?;
-        }
         Ok(())
     }
 }
