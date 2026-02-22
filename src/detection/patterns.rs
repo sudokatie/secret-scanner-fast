@@ -110,6 +110,22 @@ pub static CONNECTION_STRING: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"(?i)(mysql|postgres|postgresql|mongodb|redis)://[^:]+:[^@]+@[^\s'"]+$"#).unwrap()
 });
 
+// Low confidence - require additional validation
+pub static HEX_STRING_32: Lazy<Regex> = Lazy::new(|| {
+    // 32+ char hex string in secret/key/token context
+    Regex::new(r#"(?i)(secret|key|token|hash|password|credential)[_-]?\s*[:=]\s*['"]?([0-9a-f]{32,})['"]?"#).unwrap()
+});
+
+pub static BASE64_BLOB: Lazy<Regex> = Lazy::new(|| {
+    // Long base64 string (40+ chars) in config context
+    Regex::new(r#"(?i)(secret|key|token|credential|password)[_-]?\s*[:=]\s*['"]?([A-Za-z0-9+/]{40,}={0,2})['"]?"#).unwrap()
+});
+
+pub static HIGH_ENTROPY_STRING: Lazy<Regex> = Lazy::new(|| {
+    // Generic assignment of long alphanumeric string
+    Regex::new(r#"(?i)(secret|private[_-]?key|api[_-]?secret|auth[_-]?token)\s*[:=]\s*['"]?([A-Za-z0-9_-]{24,})['"]?"#).unwrap()
+});
+
 /// Pattern entry with metadata
 pub struct PatternEntry {
     pub id: &'static str,
@@ -149,6 +165,10 @@ pub fn all_patterns() -> Vec<PatternEntry> {
         PatternEntry { id: "basic-auth", description: "Basic Auth Credentials", regex: &BASIC_AUTH, severity: Severity::Medium, confidence: Confidence::Medium, capture_group: 1 },
         PatternEntry { id: "jwt", description: "JSON Web Token", regex: &JWT, severity: Severity::Medium, confidence: Confidence::High, capture_group: 0 },
         PatternEntry { id: "connection-string", description: "Database Connection String", regex: &CONNECTION_STRING, severity: Severity::High, confidence: Confidence::High, capture_group: 0 },
+        // Low confidence patterns - require entropy validation
+        PatternEntry { id: "hex-string-32", description: "Hex String (32+ chars) in Secret Context", regex: &HEX_STRING_32, severity: Severity::Low, confidence: Confidence::Low, capture_group: 2 },
+        PatternEntry { id: "base64-blob", description: "Base64 Blob in Config Context", regex: &BASE64_BLOB, severity: Severity::Low, confidence: Confidence::Low, capture_group: 2 },
+        PatternEntry { id: "high-entropy-string", description: "High Entropy String in Secret Context", regex: &HIGH_ENTROPY_STRING, severity: Severity::Low, confidence: Confidence::Low, capture_group: 2 },
     ]
 }
 
@@ -230,5 +250,33 @@ mod tests {
         let key = format!("AAAA{}:{}", "abcdefg", "x".repeat(100));
         assert!(FIREBASE_KEY.is_match(&key));
         assert!(!FIREBASE_KEY.is_match("AAAA:short")); // Too short
+    }
+
+    #[test]
+    fn test_hex_string_32() {
+        // 32+ char hex string in secret context
+        let hex = "a".repeat(32);
+        assert!(HEX_STRING_32.is_match(&format!("secret_key = {}", hex)));
+        assert!(HEX_STRING_32.is_match(&format!("TOKEN: {}", hex)));
+        assert!(!HEX_STRING_32.is_match(&format!("username = {}", hex))); // No secret context
+        assert!(!HEX_STRING_32.is_match("secret_key = abc")); // Too short
+    }
+
+    #[test]
+    fn test_base64_blob() {
+        // Long base64 in config context
+        let b64 = "A".repeat(50);
+        assert!(BASE64_BLOB.is_match(&format!("secret = {}", b64)));
+        assert!(BASE64_BLOB.is_match(&format!("credential: {}", b64)));
+        assert!(!BASE64_BLOB.is_match(&format!("secret = {}", "A".repeat(10)))); // Too short
+    }
+
+    #[test]
+    fn test_high_entropy_string() {
+        let value = "x".repeat(30);
+        assert!(HIGH_ENTROPY_STRING.is_match(&format!("api_secret = {}", value)));
+        assert!(HIGH_ENTROPY_STRING.is_match(&format!("private_key: {}", value)));
+        assert!(HIGH_ENTROPY_STRING.is_match(&format!("auth_token = {}", value)));
+        assert!(!HIGH_ENTROPY_STRING.is_match(&format!("username = {}", value))); // No secret context
     }
 }

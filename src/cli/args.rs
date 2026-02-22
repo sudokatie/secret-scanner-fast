@@ -16,8 +16,19 @@ pub enum Command {
     Scan(ScanArgs),
     /// List available detection rules
     Rules(RulesArgs),
+    /// Verify if a detected secret is valid (calls provider API)
+    Verify(VerifyArgs),
     /// Create default config file
     Init(InitArgs),
+    /// Generate man page
+    Man(ManArgs),
+}
+
+#[derive(clap::Args)]
+pub struct ManArgs {
+    /// Output directory for man page
+    #[arg(short, long, default_value = ".")]
+    pub output: PathBuf,
 }
 
 #[derive(clap::Args)]
@@ -112,6 +123,24 @@ pub struct RulesArgs {
     /// Filter by severity
     #[arg(long, value_enum)]
     pub severity: Option<SeverityArg>,
+}
+
+#[derive(clap::Args)]
+pub struct VerifyArgs {
+    /// The secret value to verify
+    pub secret: String,
+
+    /// Type of secret (aws, github, slack, stripe, etc.)
+    #[arg(short, long)]
+    pub secret_type: Option<String>,
+
+    /// Output format
+    #[arg(short, long, value_enum, default_value = "text")]
+    pub format: OutputFormat,
+
+    /// Timeout in seconds
+    #[arg(long, default_value = "10")]
+    pub timeout: u64,
 }
 
 #[derive(clap::Args)]

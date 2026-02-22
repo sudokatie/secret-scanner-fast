@@ -76,6 +76,11 @@ secret-scanner-fast scan -vv
 - Database connection strings
 - JWTs
 
+**Low Confidence** (require high entropy + context):
+- Hex strings (32+ chars) in secret context
+- Base64 blobs in config context
+- High entropy strings in secret variable assignments
+
 ## Git Integration
 
 ```bash
@@ -109,15 +114,38 @@ secret-scanner-fast scan --baseline baseline.json
 
 Findings are matched by fingerprint (hash of rule, file, line, value).
 
+## Verify Secrets
+
+Check if a detected secret is actually valid by calling the provider API:
+
+```bash
+# Auto-detect secret type
+secret-scanner-fast verify ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Specify secret type
+secret-scanner-fast verify --secret-type github ghp_xxxx
+
+# JSON output
+secret-scanner-fast verify --format json sk_live_xxxx
+```
+
+Supported providers: `aws`, `github`, `slack`, `stripe`, `npm`, `pypi`
+
 ## Configuration
 
-Create `.secretscanner.yaml`:
+Create `.secretscanner.yaml` (or `.secretscannerignore`):
 
 ```bash
 secret-scanner-fast init
 # Or with all options documented:
 secret-scanner-fast init --full
 ```
+
+Config is loaded from (in order):
+1. `--config` flag
+2. `.secretscanner.yaml` in current directory
+3. `.secretscanner.yaml` in git repo root
+4. `~/.config/secretscanner/config.yaml`
 
 Example config:
 
@@ -131,6 +159,11 @@ scan:
 output:
   format: text
   redact: true
+  context_lines: 1
+
+git:
+  max_commit_depth: 1000
+  scan_all_branches: false
 
 rules:
   min_severity: low
@@ -139,6 +172,11 @@ rules:
       reason: "Test values"
   allow_fingerprints:
     - "abc123def4"  # Specific finding to ignore
+  custom_rules:
+    - id: internal-api-key
+      description: "Internal API key format"
+      pattern: "INT_[A-Z0-9]{32}"
+      severity: high
 ```
 
 ## Environment Variables
@@ -248,6 +286,16 @@ secret-scanner-fast rules --format json
 
 # Filter by severity
 secret-scanner-fast rules --severity high
+```
+
+## Generate Man Page
+
+```bash
+# Generate to current directory
+secret-scanner-fast man
+
+# Generate to specific directory
+secret-scanner-fast man --output /usr/local/share/man/man1/
 ```
 
 ## License

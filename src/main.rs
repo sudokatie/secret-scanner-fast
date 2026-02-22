@@ -9,9 +9,11 @@ mod output;
 mod scanner;
 mod utils;
 
-use cli::args::{Args, Command, InitArgs, ScanArgs};
+use clap::CommandFactory;
+use cli::args::{Args, Command, InitArgs, ManArgs, ScanArgs, VerifyArgs};
 use config::Config;
 use scanner::engine::ScanEngine;
+use scanner::verify::verify_secret;
 
 fn main() -> ExitCode {
     let args = Args::parse();
@@ -22,7 +24,9 @@ fn main() -> ExitCode {
             run_rules(&rules_args);
             ExitCode::SUCCESS
         }
+        Some(Command::Verify(verify_args)) => run_verify(&verify_args),
         Some(Command::Init(init_args)) => run_init(&init_args),
+        Some(Command::Man(man_args)) => run_man(&man_args),
         None => {
             // Default: scan current directory
             let scan_args = ScanArgs {
@@ -120,6 +124,40 @@ fn run_rules(args: &cli::args::RulesArgs) {
     }
 }
 
+fn run_verify(args: &VerifyArgs) -> ExitCode {
+    match verify_secret(&args.secret, args.secret_type.as_deref(), args.timeout) {
+        Ok(result) => {
+            match args.format {
+                cli::args::OutputFormat::Json => {
+                    println!(
+                        r#"{{"secret_type":"{}","is_valid":{},"message":"{}"{}}}"#,
+                        result.secret_type,
+                        result.is_valid,
+                        result.message,
+                        result.details.map(|d| format!(r#","details":"{}""#, d)).unwrap_or_default()
+                    );
+                }
+                _ => {
+                    let status = if result.is_valid { "VALID" } else { "INVALID" };
+                    println!("[{}] {} - {}", status, result.secret_type, result.message);
+                    if let Some(details) = result.details {
+                        println!("  {}", details);
+                    }
+                }
+            }
+            if result.is_valid {
+                ExitCode::from(1) // Found a valid secret = exit 1 (same as scan findings)
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            ExitCode::from(2)
+        }
+    }
+}
+
 fn run_init(args: &InitArgs) -> ExitCode {
     use std::fs;
 
@@ -154,4 +192,27 @@ fn run_init(args: &InitArgs) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+fn run_man(args: &ManArgs) -> ExitCode {
+    use clap_mangen::Man;
+    use std::fs;
+
+    let cmd = Args::command();
+    let man = Man::new(cmd);
+    let mut buffer: Vec<u8> = Vec::new();
+    
+    if let Err(e) = man.render(&mut buffer) {
+        eprintln!("Error generating man page: {}", e);
+        return ExitCode::from(2);
+    }
+
+    let output_path = args.output.join("secret-scanner-fast.1");
+    if let Err(e) = fs::write(&output_path, buffer) {
+        eprintln!("Error writing man page: {}", e);
+        return ExitCode::from(2);
+    }
+
+    println!("Generated {}", output_path.display());
+    ExitCode::SUCCESS
 }

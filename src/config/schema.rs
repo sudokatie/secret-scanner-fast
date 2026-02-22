@@ -10,6 +10,9 @@ pub struct Config {
 
     #[serde(default)]
     pub rules: RulesConfig,
+
+    #[serde(default)]
+    pub git: GitConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +32,26 @@ pub struct ScanConfig {
     /// Number of threads (0 = auto)
     #[serde(default)]
     pub threads: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitConfig {
+    /// Maximum commit depth for --git-history
+    #[serde(default = "default_max_commit_depth")]
+    pub max_commit_depth: usize,
+
+    /// Scan all branches (not just current)
+    #[serde(default)]
+    pub scan_all_branches: bool,
+}
+
+impl Default for GitConfig {
+    fn default() -> Self {
+        Self {
+            max_commit_depth: default_max_commit_depth(),
+            scan_all_branches: false,
+        }
+    }
 }
 
 impl Default for ScanConfig {
@@ -55,6 +78,10 @@ pub struct OutputConfig {
     /// Whether to use colors
     #[serde(default = "default_true")]
     pub color: bool,
+
+    /// Number of context lines around matches
+    #[serde(default = "default_context_lines")]
+    pub context_lines: usize,
 }
 
 impl Default for OutputConfig {
@@ -63,6 +90,7 @@ impl Default for OutputConfig {
             format: default_format(),
             redact: true,
             color: true,
+            context_lines: default_context_lines(),
         }
     }
 }
@@ -84,6 +112,10 @@ pub struct RulesConfig {
     /// Fingerprints to allowlist (specific findings to ignore)
     #[serde(default)]
     pub allow_fingerprints: Vec<String>,
+
+    /// Custom detection rules
+    #[serde(default)]
+    pub custom_rules: Vec<CustomRule>,
 }
 
 impl Default for RulesConfig {
@@ -93,6 +125,7 @@ impl Default for RulesConfig {
             disable: Vec::new(),
             allowlist: Vec::new(),
             allow_fingerprints: Vec::new(),
+            custom_rules: Vec::new(),
         }
     }
 }
@@ -111,6 +144,27 @@ pub struct AllowlistEntry {
     pub reason: Option<String>,
 }
 
+/// Custom detection rule defined in config
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomRule {
+    /// Unique rule ID
+    pub id: String,
+
+    /// Human-readable description
+    pub description: String,
+
+    /// Regex pattern to match
+    pub pattern: String,
+
+    /// Severity level (low, medium, high)
+    #[serde(default = "default_severity")]
+    pub severity: String,
+
+    /// Optional entropy threshold for validation
+    #[serde(default)]
+    pub entropy_threshold: Option<f64>,
+}
+
 fn default_max_file_size() -> u64 {
     1024 * 1024 // 1MB
 }
@@ -125,6 +179,14 @@ fn default_severity() -> String {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_context_lines() -> usize {
+    1
+}
+
+fn default_max_commit_depth() -> usize {
+    1000
 }
 
 impl Config {
@@ -147,6 +209,7 @@ impl Config {
                 format: "text".to_string(),
                 redact: true,
                 color: true,
+                context_lines: 1,
             },
             rules: RulesConfig {
                 min_severity: "low".to_string(),
@@ -157,6 +220,17 @@ impl Config {
                     reason: Some("Test/example values".to_string()),
                 }],
                 allow_fingerprints: Vec::new(),
+                custom_rules: vec![CustomRule {
+                    id: "internal-api-key".to_string(),
+                    description: "Internal API key format".to_string(),
+                    pattern: "INT_[A-Z0-9]{32}".to_string(),
+                    severity: "high".to_string(),
+                    entropy_threshold: None,
+                }],
+            },
+            git: GitConfig {
+                max_commit_depth: 1000,
+                scan_all_branches: false,
             },
         }
     }

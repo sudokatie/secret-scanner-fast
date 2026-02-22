@@ -1,4 +1,4 @@
-//! Context validation for reducing false positives
+//! Context validation for reducing false positives and boosting confidence
 #![allow(dead_code)]
 
 use once_cell::sync::Lazy;
@@ -19,6 +19,14 @@ static DOC_CONTEXT_PATTERNS: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(//\s*example|#\s*example|/\*.*example|```|e\.g\.|for example|such as)").unwrap()
 });
 
+/// Positive indicators - variable names that suggest real secrets (spec 2.3.1)
+static SECRET_VAR_PATTERNS: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(secret|key|token|password|credential|auth|private|api[_-]?key|access[_-]?key)").unwrap()
+});
+
+/// Config file extensions that increase confidence
+static CONFIG_EXTENSIONS: &[&str] = &[".env", ".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf"];
+
 /// Check if the matched value looks like a placeholder
 pub fn is_placeholder(value: &str) -> bool {
     PLACEHOLDER_PATTERNS.is_match(value)
@@ -34,10 +42,23 @@ pub fn is_doc_context(context: &str) -> bool {
     DOC_CONTEXT_PATTERNS.is_match(context)
 }
 
+/// Check if the context contains secret-related variable names (positive indicator)
+pub fn has_secret_context(context: &str) -> bool {
+    SECRET_VAR_PATTERNS.is_match(context)
+}
+
+/// Check if the file is a config file (positive indicator)
+pub fn is_config_file(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    CONFIG_EXTENSIONS.iter().any(|ext| lower.ends_with(ext))
+}
+
 /// Determine confidence adjustment based on context
+/// Positive values increase confidence, negative values decrease it
 pub fn confidence_adjustment(value: &str, path: &str, context: &str) -> f64 {
     let mut adjustment = 0.0;
 
+    // Negative indicators (decrease confidence)
     if is_placeholder(value) {
         adjustment -= 0.5;
     }
@@ -48,6 +69,15 @@ pub fn confidence_adjustment(value: &str, path: &str, context: &str) -> f64 {
 
     if is_doc_context(context) {
         adjustment -= 0.4;
+    }
+
+    // Positive indicators (increase confidence) - per spec 2.3.1
+    if has_secret_context(context) {
+        adjustment += 0.3;
+    }
+
+    if is_config_file(path) {
+        adjustment += 0.2;
     }
 
     adjustment
@@ -128,16 +158,53 @@ mod tests {
 
     #[test]
     fn test_confidence_adjustment() {
-        // Placeholder gets big penalty
-        let adj = confidence_adjustment("EXAMPLE_KEY", "src/config.py", "key = EXAMPLE_KEY");
-        assert!(adj < -0.4);
+        // Placeholder gets penalty (-0.5) but secret context ("key") adds (+0.3)
+        // Net: -0.2
+        let adj = confidence_adjustment("EXAMPLE_VALUE", "src/config.py", "data = EXAMPLE_VALUE");
+        assert!(adj < -0.4, "Expected strong negative for placeholder, got {}", adj);
 
-        // Test path gets penalty
-        let adj = confidence_adjustment("REAL_KEY", "tests/test.py", "key = REAL_KEY");
-        assert!(adj < -0.2);
+        // Test path gets penalty (-0.3)
+        // No positive indicators when value/context don't have secret words
+        let adj = confidence_adjustment("abc123def456", "tests/test.py", "x = abc123def456");
+        assert!(adj < -0.2, "Expected negative from test path, got {}", adj);
 
-        // Production code, no penalty
-        let adj = confidence_adjustment("REAL_KEY", "src/config.py", "key = REAL_KEY");
-        assert!((adj - 0.0).abs() < 0.01);
+        // Production code with no indicators, no adjustment
+        let adj = confidence_adjustment("abc123def456", "src/main.py", "x = abc123def456");
+        assert!((adj - 0.0).abs() < 0.01, "Expected 0, got {}", adj);
+    }
+
+    #[test]
+    fn test_has_secret_context() {
+        assert!(has_secret_context("api_key = AKIAIOSFODNN7"));
+        assert!(has_secret_context("AWS_SECRET_ACCESS_KEY=xxx"));
+        assert!(has_secret_context("auth_token: bearer123"));
+        assert!(has_secret_context("password: mypass"));
+        assert!(has_secret_context("private_key = xyz"));
+
+        assert!(!has_secret_context("username = admin"));
+        assert!(!has_secret_context("count = 42"));
+    }
+
+    #[test]
+    fn test_is_config_file() {
+        assert!(is_config_file("config.yaml"));
+        assert!(is_config_file("settings.json"));
+        assert!(is_config_file(".env"));
+        assert!(is_config_file("app.toml"));
+        assert!(is_config_file("database.ini"));
+
+        assert!(!is_config_file("main.py"));
+        assert!(!is_config_file("app.js"));
+    }
+
+    #[test]
+    fn test_positive_confidence_boost() {
+        // Secret context boosts confidence
+        let adj = confidence_adjustment("REAL_KEY", "config.yaml", "api_key = REAL_KEY");
+        assert!(adj > 0.4); // +0.3 for secret context, +0.2 for config file
+
+        // Config file alone boosts
+        let adj = confidence_adjustment("REAL_KEY", "settings.json", "value = REAL_KEY");
+        assert!(adj > 0.1);
     }
 }
