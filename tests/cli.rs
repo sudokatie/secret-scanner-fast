@@ -68,9 +68,10 @@ fn test_scan_clean_directory() {
 #[test]
 fn test_scan_finds_aws_key() {
     let temp = TempDir::new().unwrap();
+    // Use non-placeholder value (not EXAMPLE, test, fake, etc.)
     fs::write(
         temp.path().join("config.py"),
-        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
     )
     .unwrap();
 
@@ -88,7 +89,7 @@ fn test_scan_json_output() {
     let temp = TempDir::new().unwrap();
     fs::write(
         temp.path().join("config.py"),
-        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
     )
     .unwrap();
 
@@ -106,7 +107,7 @@ fn test_scan_csv_output() {
     let temp = TempDir::new().unwrap();
     fs::write(
         temp.path().join("config.py"),
-        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
     )
     .unwrap();
 
@@ -124,7 +125,7 @@ fn test_scan_sarif_output() {
     let temp = TempDir::new().unwrap();
     fs::write(
         temp.path().join("config.py"),
-        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
     )
     .unwrap();
 
@@ -140,8 +141,8 @@ fn test_scan_sarif_output() {
 #[test]
 fn test_scan_min_severity_filter() {
     let temp = TempDir::new().unwrap();
-    // Stripe test key is LOW severity
-    let test_key = format!("sk_test_{}", "x".repeat(24));
+    // Stripe test key is LOW severity - use realistic-looking value
+    let test_key = format!("sk_test_{}", "aB3xK9mZ2pQ7wR5nY8tL1234");
     fs::write(
         temp.path().join("config.py"),
         format!("key = {}\n", test_key),
@@ -167,7 +168,7 @@ fn test_scan_stdin() {
     Command::cargo_bin("secret-scanner-fast")
         .unwrap()
         .args(["scan", "-"])
-        .write_stdin("key = AKIAIOSFODNN7EXAMPLE\n")
+        .write_stdin("key = AKIAIOSFODNN7REALKEY\n")
         .assert()
         .failure()
         .stdout(predicate::str::contains("aws-access-key"));
@@ -253,10 +254,10 @@ fn test_scan_skips_binary() {
     let temp = TempDir::new().unwrap();
     // Write binary file with null bytes
     fs::write(temp.path().join("binary.bin"), &[0u8, 1, 2, 3, 0, 5]).unwrap();
-    // Write text file with secret
+    // Write text file with secret (non-placeholder)
     fs::write(
         temp.path().join("config.py"),
-        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
     )
     .unwrap();
 
@@ -276,12 +277,94 @@ fn test_scan_excludes_node_modules() {
     fs::create_dir(temp.path().join("node_modules")).unwrap();
     fs::write(
         temp.path().join("node_modules/secret.js"),
-        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
     )
     .unwrap();
 
     // Create non-ignored file without secret
     fs::write(temp.path().join("clean.py"), "x = 42\n").unwrap();
+
+    Command::cargo_bin("secret-scanner-fast")
+        .unwrap()
+        .args(["scan", temp.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No secrets found"));
+}
+
+#[test]
+fn test_placeholder_filtered() {
+    let temp = TempDir::new().unwrap();
+    // This should be filtered as a placeholder because it contains "EXAMPLE"
+    fs::write(
+        temp.path().join("config.py"),
+        "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("secret-scanner-fast")
+        .unwrap()
+        .args(["scan", temp.path().to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No secrets found"));
+}
+
+#[test]
+fn test_config_custom_rules() {
+    let temp = TempDir::new().unwrap();
+
+    // Create config with custom rule
+    fs::write(
+        temp.path().join(".secretscanner.yaml"),
+        r#"
+rules:
+  custom_rules:
+    - id: internal-key
+      description: Internal API key
+      pattern: "INT_[A-Z0-9]{16}"
+      severity: high
+"#,
+    )
+    .unwrap();
+
+    // Create file with custom pattern
+    fs::write(
+        temp.path().join("config.py"),
+        "key = INT_ABCDEF1234567890\n",
+    )
+    .unwrap();
+
+    Command::cargo_bin("secret-scanner-fast")
+        .unwrap()
+        .args(["scan", temp.path().to_str().unwrap()])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("internal-key"));
+}
+
+#[test]
+fn test_config_allowlist() {
+    let temp = TempDir::new().unwrap();
+
+    // Create config with allowlist
+    fs::write(
+        temp.path().join(".secretscanner.yaml"),
+        r#"
+rules:
+  allowlist:
+    - pattern: "REALKEY"
+      reason: "Known safe value"
+"#,
+    )
+    .unwrap();
+
+    // Create file with allowlisted secret
+    fs::write(
+        temp.path().join("config.py"),
+        "aws_key = AKIAIOSFODNN7REALKEY\n",
+    )
+    .unwrap();
 
     Command::cargo_bin("secret-scanner-fast")
         .unwrap()

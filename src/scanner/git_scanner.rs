@@ -1,4 +1,5 @@
-use crate::detection::matcher::Matcher;
+use crate::detection::allowlist::Allowlist;
+use crate::detection::matcher::{CustomRule, Matcher};
 use crate::detection::rules::Severity;
 use crate::output::finding::{Finding, GitInfo};
 use git2::{Commit, Repository};
@@ -10,17 +11,39 @@ pub struct HistoryOptions {
     pub max_commits: Option<usize>,
 }
 
-
 pub struct GitScanner {
     repo: Repository,
-    matcher: Matcher,
+    min_severity: Severity,
+    custom_rules: Vec<CustomRule>,
+    allowlist: Allowlist,
 }
 
 impl GitScanner {
     pub fn new(path: &Path, min_severity: Severity) -> Result<Self, git2::Error> {
         let repo = Repository::discover(path)?;
-        let matcher = Matcher::new(min_severity);
-        Ok(Self { repo, matcher })
+        Ok(Self {
+            repo,
+            min_severity,
+            custom_rules: Vec::new(),
+            allowlist: Allowlist::new(),
+        })
+    }
+
+    pub fn with_custom_rules(mut self, rules: Vec<CustomRule>) -> Self {
+        self.custom_rules = rules;
+        self
+    }
+
+    pub fn with_allowlist(mut self, allowlist: Allowlist) -> Self {
+        self.allowlist = allowlist;
+        self
+    }
+
+    /// Build a configured matcher
+    fn build_matcher(&self) -> Matcher {
+        Matcher::new(self.min_severity)
+            .with_custom_rules(self.custom_rules.clone())
+            .with_allowlist(self.allowlist.clone())
     }
 
     /// Scan staged changes (for pre-commit hooks)
@@ -28,7 +51,9 @@ impl GitScanner {
         let head = self.repo.head()?.peel_to_tree()?;
         let index = self.repo.index()?;
 
-        let diff = self.repo.diff_tree_to_index(Some(&head), Some(&index), None)?;
+        let diff = self
+            .repo
+            .diff_tree_to_index(Some(&head), Some(&index), None)?;
 
         self.scan_diff_lines(&diff, None)
     }
@@ -40,7 +65,9 @@ impl GitScanner {
 
         let head = self.repo.head()?.peel_to_tree()?;
 
-        let diff = self.repo.diff_tree_to_tree(Some(&ref_tree), Some(&head), None)?;
+        let diff = self
+            .repo
+            .diff_tree_to_tree(Some(&ref_tree), Some(&head), None)?;
 
         self.scan_diff_lines(&diff, None)
     }
@@ -95,9 +122,9 @@ impl GitScanner {
             None
         };
 
-        let diff =
-            self.repo
-                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+        let diff = self
+            .repo
+            .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
 
         let git_info = GitInfo {
             commit_sha: commit.id().to_string()[..8].to_string(),
@@ -123,6 +150,7 @@ impl GitScanner {
         git_info: Option<GitInfo>,
     ) -> Result<Vec<Finding>, git2::Error> {
         let mut findings = Vec::new();
+        let matcher = self.build_matcher();
 
         diff.foreach(
             &mut |_delta, _progress| true,
@@ -142,7 +170,7 @@ impl GitScanner {
 
                 if let Ok(content) = std::str::from_utf8(line.content()) {
                     let line_num = line.new_lineno().unwrap_or(0) as usize;
-                    let mut line_findings = self.matcher.match_line(content, line_num, &file_path);
+                    let mut line_findings = matcher.match_line(content, line_num, &file_path);
 
                     // Add git info to findings
                     for finding in &mut line_findings {
@@ -240,10 +268,10 @@ mod tests {
             .output()
             .unwrap();
 
-        // Stage a file with secret
+        // Stage a file with secret (non-placeholder)
         std::fs::write(
             temp.path().join("config.py"),
-            "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+            "aws_key = AKIAIOSFODNN7REALKEY\n",
         )
         .unwrap();
         Command::new("git")
@@ -276,10 +304,10 @@ mod tests {
             .output()
             .unwrap();
 
-        // Create commit with secret
+        // Create commit with secret (non-placeholder)
         std::fs::write(
             temp.path().join("config.py"),
-            "aws_key = AKIAIOSFODNN7EXAMPLE\n",
+            "aws_key = AKIAIOSFODNN7REALKEY\n",
         )
         .unwrap();
         Command::new("git")
@@ -299,5 +327,43 @@ mod tests {
         assert!(!findings.is_empty());
         assert!(findings.iter().any(|f| f.rule_id == "aws-access-key"));
         assert!(findings[0].git_info.is_some());
+    }
+
+    #[test]
+    fn test_placeholder_filtered_in_git() {
+        let temp = setup_git_repo();
+
+        // Create and commit initial file
+        std::fs::write(temp.path().join("config.py"), "x = 42\n").unwrap();
+        Command::new("git")
+            .args(["add", "config.py"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        // Stage a file with placeholder secret
+        std::fs::write(
+            temp.path().join("config.py"),
+            "aws_key = AKIAEXAMPLE12345678\n",
+        )
+        .unwrap();
+        Command::new("git")
+            .args(["add", "config.py"])
+            .current_dir(temp.path())
+            .output()
+            .unwrap();
+
+        let scanner = GitScanner::new(temp.path(), Severity::Low).unwrap();
+        let findings = scanner.scan_staged().unwrap();
+
+        assert!(
+            findings.is_empty(),
+            "Placeholder EXAMPLE should be filtered"
+        );
     }
 }

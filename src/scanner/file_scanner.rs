@@ -1,5 +1,5 @@
-
-use crate::detection::matcher::Matcher;
+use crate::detection::allowlist::Allowlist;
+use crate::detection::matcher::{CustomRule, Matcher};
 use crate::detection::rules::Severity;
 use crate::output::finding::Finding;
 use crate::output::ScanResult;
@@ -12,7 +12,9 @@ use std::time::Instant;
 use walkdir::WalkDir;
 
 pub struct FileScanner {
-    matcher: Matcher,
+    min_severity: Severity,
+    custom_rules: Vec<CustomRule>,
+    allowlist: Allowlist,
     filter: PathFilter,
     stream_reader: StreamReader,
     max_file_size: u64,
@@ -22,23 +24,14 @@ pub struct FileScanner {
 impl FileScanner {
     pub fn new(root: &Path, min_severity: Severity) -> Self {
         Self {
-            matcher: Matcher::new(min_severity),
+            min_severity,
+            custom_rules: Vec::new(),
+            allowlist: Allowlist::new(),
             filter: PathFilter::new(root, &[], &[]),
             stream_reader: StreamReader::new(),
             max_file_size: 1024 * 1024, // 1MB default
             threads: None,
         }
-    }
-
-    pub fn with_excludes(mut self, excludes: &[String]) -> Self {
-        // Recreate filter with excludes - need to know root
-        self.filter = PathFilter::new(Path::new("."), excludes, &[]);
-        self
-    }
-
-    pub fn with_includes(mut self, root: &Path, excludes: &[String], includes: &[String]) -> Self {
-        self.filter = PathFilter::new(root, excludes, includes);
-        self
     }
 
     pub fn with_max_file_size(mut self, size: u64) -> Self {
@@ -54,6 +47,23 @@ impl FileScanner {
     pub fn with_filter(mut self, filter: PathFilter) -> Self {
         self.filter = filter;
         self
+    }
+
+    pub fn with_custom_rules(mut self, rules: Vec<CustomRule>) -> Self {
+        self.custom_rules = rules;
+        self
+    }
+
+    pub fn with_allowlist(mut self, allowlist: Allowlist) -> Self {
+        self.allowlist = allowlist;
+        self
+    }
+
+    /// Build a configured matcher
+    fn build_matcher(&self) -> Matcher {
+        Matcher::new(self.min_severity)
+            .with_custom_rules(self.custom_rules.clone())
+            .with_allowlist(self.allowlist.clone())
     }
 
     /// Scan a directory tree for secrets
@@ -79,6 +89,9 @@ impl FileScanner {
             .filter(|e| self.filter.should_scan(e.path()))
             .collect();
 
+        // Build matcher once (contains allowlist and custom rules)
+        let matcher = self.build_matcher();
+
         // Scan files in parallel
         let findings: Vec<Finding> = files
             .par_iter()
@@ -86,7 +99,11 @@ impl FileScanner {
                 let path = entry.path();
 
                 // Skip binary/large files
-                if self.stream_reader.should_skip(path, self.max_file_size).unwrap_or(true) {
+                if self
+                    .stream_reader
+                    .should_skip(path, self.max_file_size)
+                    .unwrap_or(true)
+                {
                     return None;
                 }
 
@@ -101,7 +118,7 @@ impl FileScanner {
                 let mut file_findings = Vec::new();
 
                 for (line_num, line) in lines {
-                    let matches = self.matcher.match_line(&line, line_num, path);
+                    let matches = matcher.match_line(&line, line_num, path);
                     file_findings.extend(matches);
                 }
 
@@ -127,7 +144,11 @@ impl FileScanner {
         let start = Instant::now();
         let mut result = ScanResult::new();
 
-        if self.stream_reader.should_skip(path, self.max_file_size).unwrap_or(true) {
+        if self
+            .stream_reader
+            .should_skip(path, self.max_file_size)
+            .unwrap_or(true)
+        {
             return result;
         }
 
@@ -136,9 +157,11 @@ impl FileScanner {
         }
         result.files_scanned = 1;
 
+        let matcher = self.build_matcher();
+
         if let Ok(lines) = self.stream_reader.read_file(path) {
             for (line_num, line) in lines {
-                let matches = self.matcher.match_line(&line, line_num, path);
+                let matches = matcher.match_line(&line, line_num, path);
                 result.findings.extend(matches);
             }
         }
@@ -150,7 +173,8 @@ impl FileScanner {
     /// Scan content from stdin
     pub fn scan_stdin(&self, content: &str) -> ScanResult {
         let start = Instant::now();
-        let findings = self.matcher.match_content(content, Path::new("-"));
+        let matcher = self.build_matcher();
+        let findings = matcher.match_content(content, Path::new("-"));
 
         ScanResult {
             findings,
@@ -170,10 +194,10 @@ mod tests {
     #[test]
     fn test_scan_file_with_secret() {
         let temp = TempDir::new().unwrap();
-        let file_path = temp.path().join("test.py");
+        let file_path = temp.path().join("config.py");
         let mut file = std::fs::File::create(&file_path).unwrap();
         writeln!(file, "# config").unwrap();
-        writeln!(file, "aws_key = AKIAIOSFODNN7EXAMPLE").unwrap();
+        writeln!(file, "aws_key = AKIAIOSFODNN7REALKEY").unwrap();
 
         let scanner = FileScanner::new(temp.path(), Severity::Low);
         let result = scanner.scan_file(&file_path);
@@ -187,12 +211,12 @@ mod tests {
     fn test_scan_directory() {
         let temp = TempDir::new().unwrap();
 
-        // Create files with secrets
+        // Create files with secrets (use realistic-looking values, not placeholders)
         let mut f1 = std::fs::File::create(temp.path().join("config.py")).unwrap();
-        writeln!(f1, "key = AKIAIOSFODNN7EXAMPLE").unwrap();
+        writeln!(f1, "key = AKIAIOSFODNN7REALKEY").unwrap();
 
         let mut f2 = std::fs::File::create(temp.path().join("app.js")).unwrap();
-        writeln!(f2, "const token = 'ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'").unwrap();
+        writeln!(f2, "const token = 'ghp_aB3xK9mZ2pQ7wR5nY8tLaB3xK9mZ2pQ7wR5n'").unwrap();
 
         // Create clean file
         let mut f3 = std::fs::File::create(temp.path().join("readme.md")).unwrap();
@@ -208,7 +232,7 @@ mod tests {
     #[test]
     fn test_scan_stdin() {
         let scanner = FileScanner::new(Path::new("."), Severity::Low);
-        let result = scanner.scan_stdin("key: AKIAIOSFODNN7EXAMPLE\n");
+        let result = scanner.scan_stdin("key: AKIAIOSFODNN7REALKEY\n");
 
         assert_eq!(result.findings.len(), 1);
         assert_eq!(result.findings[0].location.file.to_string_lossy(), "-");
@@ -231,14 +255,72 @@ mod tests {
     fn test_max_file_size() {
         let temp = TempDir::new().unwrap();
         let large_path = temp.path().join("large.txt");
-        let content = "AKIAIOSFODNN7EXAMPLE\n".repeat(1000);
+        let content = "AKIAIOSFODNN7REALKEY\n".repeat(1000);
         std::fs::write(&large_path, &content).unwrap();
 
         // Scanner with very small max size
-        let scanner = FileScanner::new(temp.path(), Severity::Low)
-            .with_max_file_size(100);
+        let scanner = FileScanner::new(temp.path(), Severity::Low).with_max_file_size(100);
 
         let result = scanner.scan_file(&large_path);
         assert_eq!(result.files_scanned, 0); // Skipped due to size
+    }
+
+    #[test]
+    fn test_placeholder_filtered() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("config.py");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "aws_key = AKIAEXAMPLE12345678").unwrap();
+
+        let scanner = FileScanner::new(temp.path(), Severity::Low);
+        let result = scanner.scan_file(&file_path);
+
+        assert_eq!(result.files_scanned, 1);
+        assert!(
+            result.findings.is_empty(),
+            "Placeholder EXAMPLE should be filtered"
+        );
+    }
+
+    #[test]
+    fn test_allowlist_filtering() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("config.py");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "aws_key = AKIAIOSFODNN7REALKEY").unwrap();
+
+        let mut allowlist = Allowlist::new();
+        allowlist.add_pattern("REALKEY").unwrap();
+
+        let scanner = FileScanner::new(temp.path(), Severity::Low).with_allowlist(allowlist);
+        let result = scanner.scan_file(&file_path);
+
+        assert_eq!(result.files_scanned, 1);
+        assert!(
+            result.findings.is_empty(),
+            "Allowlisted pattern should be filtered"
+        );
+    }
+
+    #[test]
+    fn test_custom_rules() {
+        let temp = TempDir::new().unwrap();
+        let file_path = temp.path().join("config.py");
+        let mut file = std::fs::File::create(&file_path).unwrap();
+        writeln!(file, "key = INT_ABCDEF1234567890").unwrap();
+
+        let custom = CustomRule {
+            id: "internal-key".to_string(),
+            description: "Internal API key".to_string(),
+            pattern: regex::Regex::new(r"INT_[A-Z0-9]{16}").unwrap(),
+            severity: Severity::High,
+            entropy_threshold: None,
+        };
+
+        let scanner = FileScanner::new(temp.path(), Severity::Low).with_custom_rules(vec![custom]);
+        let result = scanner.scan_file(&file_path);
+
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].rule_id, "internal-key");
     }
 }

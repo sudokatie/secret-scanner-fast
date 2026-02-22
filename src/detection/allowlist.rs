@@ -1,5 +1,4 @@
 //! Allowlist for ignoring known false positives
-#![allow(dead_code)]
 
 use regex::Regex;
 use std::collections::HashSet;
@@ -52,6 +51,7 @@ impl AllowlistEntry {
 }
 
 /// Collection of allowlist entries
+#[derive(Clone)]
 pub struct Allowlist {
     entries: Vec<AllowlistEntry>,
     fingerprints: HashSet<String>,
