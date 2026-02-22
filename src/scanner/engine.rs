@@ -51,11 +51,13 @@ impl ScanEngine {
         // Load environment config
         let env_config = EnvConfig::load();
 
-        // Load config file (spec 5.2: CLI > current dir > git root > ~/.config)
+        // Load config file (spec 5.2: CLI > env > current dir > git root > ~/.config)
         let config = if args.no_config {
             Config::default()
         } else {
-            load_config(args.config.as_deref(), &args.path)
+            // CLI --config takes precedence, then SECRET_SCANNER_CONFIG env var
+            let config_path = args.config.as_deref().or(env_config.config_path.as_deref());
+            load_config(config_path, &args.path)
         };
 
         // Determine min_severity (CLI > env > config > default)
@@ -139,12 +141,10 @@ impl ScanEngine {
         };
 
         // Determine threads (CLI > config)
-        let threads = args.threads.or_else(|| {
-            if config.scan.threads > 0 {
-                Some(config.scan.threads)
-            } else {
-                None
-            }
+        let threads = args.threads.or(if config.scan.threads > 0 {
+            Some(config.scan.threads)
+        } else {
+            None
         });
 
         Self {

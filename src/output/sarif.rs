@@ -198,6 +198,7 @@ impl SarifFormatter {
         Ok(())
     }
 
+    #[allow(dead_code)] // Public API for library users
     pub fn format_to_string(&self, result: &ScanResult) -> Result<String, serde_json::Error> {
         let report = SarifReport {
             schema: SARIF_SCHEMA,

@@ -1,4 +1,3 @@
-use crate::output::finding::Finding;
 use crate::output::ScanResult;
 use std::io::{self, Write};
 
@@ -53,6 +52,7 @@ impl CsvFormatter {
         Ok(())
     }
 
+    #[allow(dead_code)] // Used in tests, public API for library users
     pub fn format_to_string(&self, result: &ScanResult) -> String {
         let mut buf = Vec::new();
         self.format(&mut buf, result).unwrap();
@@ -70,7 +70,7 @@ impl Default for CsvFormatter {
 mod tests {
     use super::*;
     use crate::detection::rules::Severity;
-    use crate::output::finding::Location;
+    use crate::output::finding::{Finding, Location};
     use std::path::PathBuf;
     use std::time::Duration;
 

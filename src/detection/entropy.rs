@@ -48,7 +48,6 @@ impl Charset {
     /// Detect charset from string content
     pub fn detect(s: &str) -> Self {
         let has_upper = s.chars().any(|c| c.is_ascii_uppercase());
-        let has_lower = s.chars().any(|c| c.is_ascii_lowercase());
         let has_base64_special = s.chars().any(|c| c == '+' || c == '/' || c == '=');
         let all_hex = s.chars().all(|c| c.is_ascii_hexdigit());
 
@@ -56,9 +55,8 @@ impl Charset {
             Charset::Hex
         } else if has_base64_special {
             Charset::Base64
-        } else if has_upper && has_lower {
-            Charset::Alphanumeric
         } else {
+            // Alphanumeric is the default for mixed case or any other pattern
             Charset::Alphanumeric
         }
     }

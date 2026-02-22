@@ -57,6 +57,7 @@ impl JsonFormatter {
         }
     }
 
+    #[allow(dead_code)] // Public API for library users
     pub fn pretty(mut self) -> Self {
         self.pretty = true;
         self
@@ -117,6 +118,7 @@ impl JsonFormatter {
         Ok(())
     }
 
+    #[allow(dead_code)] // Used in tests, public API for library users
     pub fn format_to_string(&self, result: &ScanResult) -> Result<String, serde_json::Error> {
         let output = JsonOutput {
             findings: result.findings.iter().map(|f| self.convert_finding(f)).collect(),

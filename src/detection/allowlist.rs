@@ -9,10 +9,12 @@ use std::path::Path;
 pub struct AllowlistEntry {
     pub pattern: Regex,
     pub files: Option<Vec<String>>,
+    #[allow(dead_code)] // Used for debugging/display, part of public API
     pub reason: Option<String>,
 }
 
 impl AllowlistEntry {
+    #[allow(dead_code)] // Public API for library users and tests
     pub fn new(pattern: &str) -> Result<Self, regex::Error> {
         Ok(Self {
             pattern: Regex::new(pattern)?,
@@ -21,11 +23,13 @@ impl AllowlistEntry {
         })
     }
 
+    #[allow(dead_code)] // Builder pattern, public API
     pub fn with_files(mut self, files: Vec<String>) -> Self {
         self.files = Some(files);
         self
     }
 
+    #[allow(dead_code)] // Builder pattern, public API
     pub fn with_reason(mut self, reason: &str) -> Self {
         self.reason = Some(reason.to_string());
         self
@@ -69,6 +73,7 @@ impl Allowlist {
         self.entries.push(entry);
     }
 
+    #[allow(dead_code)] // Public API for library users and tests
     pub fn add_pattern(&mut self, pattern: &str) -> Result<(), regex::Error> {
         self.entries.push(AllowlistEntry::new(pattern)?);
         Ok(())

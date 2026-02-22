@@ -11,6 +11,7 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 pub struct CustomRule {
     pub id: String,
+    #[allow(dead_code)] // Used in build_registry for API consumers
     pub description: String,
     pub pattern: Regex,
     pub severity: Severity,
@@ -41,6 +42,7 @@ impl Matcher {
         }
     }
 
+    #[allow(dead_code)] // Public API for library users
     pub fn with_entropy_threshold(mut self, threshold: f64) -> Self {
         self.entropy_threshold = threshold;
         self
@@ -168,6 +170,7 @@ impl Matcher {
     }
 
     /// Get rule registry built from patterns
+    #[allow(dead_code)] // Public API for library users
     pub fn build_registry(&self) -> RuleRegistry {
         let mut registry = RuleRegistry::new();
         for pattern in all_patterns() {
