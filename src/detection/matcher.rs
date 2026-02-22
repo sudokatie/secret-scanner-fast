@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::detection::entropy::exceeds_threshold;
 use crate::detection::patterns::{all_patterns, PatternEntry};
 use crate::detection::rules::{Confidence, Rule, RuleRegistry, Severity};
@@ -47,11 +49,10 @@ impl Matcher {
                 };
 
                 // Apply entropy check for medium confidence patterns
-                if pattern.confidence == Confidence::Medium {
-                    if !exceeds_threshold(matched_value, self.entropy_threshold) {
+                if pattern.confidence == Confidence::Medium
+                    && !exceeds_threshold(matched_value, self.entropy_threshold) {
                         continue;
                     }
-                }
 
                 findings.push(Finding {
                     rule_id: pattern.id.to_string(),

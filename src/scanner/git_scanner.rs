@@ -1,22 +1,15 @@
 use crate::detection::matcher::Matcher;
 use crate::detection::rules::Severity;
-use crate::output::finding::{Finding, GitInfo, Location};
-use git2::{Commit, DiffOptions, Repository};
+use crate::output::finding::{Finding, GitInfo};
+use git2::{Commit, Repository};
 use std::path::{Path, PathBuf};
 
+#[derive(Default)]
 pub struct HistoryOptions {
     pub since: Option<String>,
     pub max_commits: Option<usize>,
 }
 
-impl Default for HistoryOptions {
-    fn default() -> Self {
-        Self {
-            since: None,
-            max_commits: None,
-        }
-    }
-}
 
 pub struct GitScanner {
     repo: Repository,

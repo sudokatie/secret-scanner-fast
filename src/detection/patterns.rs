@@ -67,6 +67,16 @@ pub static GOOGLE_API_KEY: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"\bAIza[0-9A-Za-z\-_]{35}\b").unwrap()
 });
 
+pub static HEROKU_API_KEY: Lazy<Regex> = Lazy::new(|| {
+    // Heroku API keys are UUIDs in heroku context
+    Regex::new(r#"(?i)heroku[_-]?api[_-]?key\s*[:=]\s*['"]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})['"]?"#).unwrap()
+});
+
+pub static FIREBASE_KEY: Lazy<Regex> = Lazy::new(|| {
+    // Firebase server keys start with AAAA
+    Regex::new(r"\bAAAA[A-Za-z0-9_-]{7,}:[A-Za-z0-9_-]{100,}\b").unwrap()
+});
+
 pub static PRIVATE_KEY_HEADER: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"-----BEGIN (RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY-----").unwrap()
 });
@@ -129,6 +139,8 @@ pub fn all_patterns() -> Vec<PatternEntry> {
         PatternEntry { id: "digitalocean-token", description: "DigitalOcean Personal Access Token", regex: &DIGITALOCEAN_TOKEN, severity: Severity::High, confidence: Confidence::High, capture_group: 0 },
         PatternEntry { id: "discord-bot-token", description: "Discord Bot Token", regex: &DISCORD_BOT_TOKEN, severity: Severity::High, confidence: Confidence::High, capture_group: 0 },
         PatternEntry { id: "google-api-key", description: "Google API Key", regex: &GOOGLE_API_KEY, severity: Severity::High, confidence: Confidence::High, capture_group: 0 },
+        PatternEntry { id: "heroku-api-key", description: "Heroku API Key", regex: &HEROKU_API_KEY, severity: Severity::High, confidence: Confidence::High, capture_group: 1 },
+        PatternEntry { id: "firebase-key", description: "Firebase Server Key", regex: &FIREBASE_KEY, severity: Severity::High, confidence: Confidence::High, capture_group: 0 },
         PatternEntry { id: "private-key", description: "Private Key File", regex: &PRIVATE_KEY_HEADER, severity: Severity::High, confidence: Confidence::High, capture_group: 0 },
         PatternEntry { id: "generic-api-key", description: "Generic API Key", regex: &GENERIC_API_KEY, severity: Severity::Medium, confidence: Confidence::Medium, capture_group: 1 },
         PatternEntry { id: "generic-secret", description: "Generic Secret", regex: &GENERIC_SECRET, severity: Severity::Medium, confidence: Confidence::Medium, capture_group: 1 },
@@ -203,5 +215,20 @@ mod tests {
         assert!(GENERIC_API_KEY.is_match("api_key = 'abcdef1234567890abcdef'"));
         assert!(GENERIC_SECRET.is_match("secret: abcdefghijklmnop"));
         assert!(GENERIC_PASSWORD.is_match("password=mysecretpassword"));
+    }
+
+    #[test]
+    fn test_heroku_api_key() {
+        assert!(HEROKU_API_KEY.is_match("HEROKU_API_KEY=12345678-1234-1234-1234-123456789012"));
+        assert!(HEROKU_API_KEY.is_match("heroku_api_key: 'abcdef12-3456-7890-abcd-ef1234567890'"));
+        assert!(!HEROKU_API_KEY.is_match("not-a-uuid"));
+    }
+
+    #[test]
+    fn test_firebase_key() {
+        // Firebase server keys are long base64-ish strings
+        let key = format!("AAAA{}:{}", "abcdefg", "x".repeat(100));
+        assert!(FIREBASE_KEY.is_match(&key));
+        assert!(!FIREBASE_KEY.is_match("AAAA:short")); // Too short
     }
 }

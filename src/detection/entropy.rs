@@ -1,3 +1,6 @@
+//! Entropy calculation for validating randomness of potential secrets
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 /// Calculate Shannon entropy for a string

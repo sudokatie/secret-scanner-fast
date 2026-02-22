@@ -1,3 +1,4 @@
+
 use crate::detection::matcher::Matcher;
 use crate::detection::rules::Severity;
 use crate::output::finding::Finding;

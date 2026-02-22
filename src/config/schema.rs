@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -81,6 +80,10 @@ pub struct RulesConfig {
     /// Patterns to allowlist (won't report matches)
     #[serde(default)]
     pub allowlist: Vec<AllowlistEntry>,
+
+    /// Fingerprints to allowlist (specific findings to ignore)
+    #[serde(default)]
+    pub allow_fingerprints: Vec<String>,
 }
 
 impl Default for RulesConfig {
@@ -89,6 +92,7 @@ impl Default for RulesConfig {
             min_severity: default_severity(),
             disable: Vec::new(),
             allowlist: Vec::new(),
+            allow_fingerprints: Vec::new(),
         }
     }
 }
@@ -152,6 +156,7 @@ impl Config {
                     files: Vec::new(),
                     reason: Some("Test/example values".to_string()),
                 }],
+                allow_fingerprints: Vec::new(),
             },
         }
     }

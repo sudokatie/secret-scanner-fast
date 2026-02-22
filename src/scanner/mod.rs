@@ -1,3 +1,4 @@
+pub mod baseline;
 pub mod engine;
 pub mod file_scanner;
 pub mod filter;

@@ -39,25 +39,75 @@ secret-scanner-fast scan --min-severity high
 
 # SARIF for GitHub Code Scanning
 secret-scanner-fast scan --format sarif > results.sarif
+
+# Verbose output
+secret-scanner-fast scan -v
+
+# Debug output
+secret-scanner-fast scan -vv
 ```
 
 ## What It Detects
 
 **High Confidence** (unique prefixes, unambiguous):
 - AWS Access Keys (`AKIA...`)
+- AWS Secret Keys (in context)
 - GitHub Tokens (`ghp_`, `gho_`, `ghs_`, `ghr_`)
 - GitLab Tokens (`glpat-...`)
 - Slack Tokens (`xoxb-`, `xoxp-`)
+- Slack Webhooks
 - Stripe Keys (`sk_live_`, `sk_test_`)
+- Twilio API Keys
 - SendGrid Keys (`SG.`)
+- npm Tokens
+- PyPI Tokens
+- DigitalOcean Tokens
+- Discord Bot Tokens
+- Google API Keys
+- Heroku API Keys
+- Firebase Server Keys
 - Private Keys (`-----BEGIN RSA PRIVATE KEY-----`)
-- And 15+ more patterns
 
 **Medium Confidence** (validated with entropy):
 - Generic API keys
+- Generic secrets/passwords
 - Bearer tokens
+- Basic auth credentials
 - Database connection strings
 - JWTs
+
+## Git Integration
+
+```bash
+# Scan staged changes (pre-commit)
+secret-scanner-fast scan --staged
+
+# Scan changes vs a branch
+secret-scanner-fast scan --diff main
+
+# Scan full git history
+secret-scanner-fast scan --git-history
+
+# Scan last N commits
+secret-scanner-fast scan --git-history --commits 50
+
+# Scan commits since date
+secret-scanner-fast scan --git-history --since 2024-01-01
+```
+
+## Baseline Support
+
+Ignore known findings by creating a baseline:
+
+```bash
+# Generate baseline
+secret-scanner-fast scan --format json > baseline.json
+
+# Scan excluding baseline findings
+secret-scanner-fast scan --baseline baseline.json
+```
+
+Findings are matched by fingerprint (hash of rule, file, line, value).
 
 ## Configuration
 
@@ -87,6 +137,24 @@ rules:
   allowlist:
     - pattern: "EXAMPLE|example|test|fake"
       reason: "Test values"
+  allow_fingerprints:
+    - "abc123def4"  # Specific finding to ignore
+```
+
+## Environment Variables
+
+```bash
+# Set minimum severity
+export SECRET_SCANNER_MIN_SEVERITY=high
+
+# Disable colors
+export SECRET_SCANNER_NO_COLOR=1
+
+# Or use standard NO_COLOR
+export NO_COLOR=1
+
+# Custom config path
+export SECRET_SCANNER_CONFIG=/path/to/config.yaml
 ```
 
 ## Output Formats
@@ -125,6 +193,22 @@ secret-scanner-fast scan --format csv
   uses: github/codeql-action/upload-sarif@v2
   with:
     sarif_file: results.sarif
+```
+
+### GitLab CI
+
+```yaml
+secret_scan:
+  stage: test
+  image: rust:latest
+  script:
+    - cargo install secret-scanner-fast
+    - secret-scanner-fast scan --format json > secrets.json
+  artifacts:
+    reports:
+      sast: secrets.json
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
 ```
 
 ### Pre-commit Hook
@@ -169,3 +253,7 @@ secret-scanner-fast rules --severity high
 ## License
 
 MIT
+
+## Author
+
+Katie
