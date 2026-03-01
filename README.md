@@ -251,6 +251,36 @@ secret_scan:
 
 ### Pre-commit Hook
 
+**Using [pre-commit](https://pre-commit.com)** (recommended):
+
+Add to your `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: https://github.com/sudokatie/secret-scanner-fast
+    rev: v0.1.0
+    hooks:
+      - id: secret-scanner-fast
+```
+
+Then install:
+
+```bash
+pre-commit install
+```
+
+**Manual installation**:
+
+```bash
+# Install to current repo
+curl -sSL https://raw.githubusercontent.com/sudokatie/secret-scanner-fast/main/scripts/install-hook.sh | bash
+
+# Install globally (for all new repos)
+curl -sSL https://raw.githubusercontent.com/sudokatie/secret-scanner-fast/main/scripts/install-hook.sh | bash -s -- --global
+```
+
+Or manually create `.git/hooks/pre-commit`:
+
 ```bash
 #!/bin/sh
 secret-scanner-fast scan --staged

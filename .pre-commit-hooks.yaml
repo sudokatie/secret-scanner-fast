@@ -1,0 +1,17 @@
+- id: secret-scanner-fast
+  name: secret-scanner-fast
+  description: Scan for secrets and credentials before commit
+  entry: secret-scanner-fast scan --staged
+  language: rust
+  types: [file]
+  pass_filenames: false
+  stages: [pre-commit, pre-push]
+
+- id: secret-scanner-fast-strict
+  name: secret-scanner-fast (strict)
+  description: Scan for secrets with strict settings (high severity only)
+  entry: secret-scanner-fast scan --staged --min-severity high
+  language: rust
+  types: [file]
+  pass_filenames: false
+  stages: [pre-commit]
