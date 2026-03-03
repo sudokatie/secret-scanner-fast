@@ -11,6 +11,7 @@ use crate::output::sarif::SarifFormatter;
 use crate::output::text::TextFormatter;
 use crate::output::ScanResult;
 use crate::scanner::baseline;
+use crate::scanner::blame::BlameCache;
 use crate::scanner::file_scanner::FileScanner;
 use crate::scanner::filter::PathFilter;
 use crate::scanner::git_scanner::{GitScanner, HistoryOptions};
@@ -44,6 +45,9 @@ pub struct ScanEngine {
     since: Option<String>,
     commits: Option<usize>,
     max_commit_depth: usize,
+    // Blame options
+    blame: bool,
+    author_filter: Option<String>,
 }
 
 impl ScanEngine {
@@ -168,6 +172,8 @@ impl ScanEngine {
             since: args.since.clone(),
             commits: args.commits,
             max_commit_depth: config.git.max_commit_depth,
+            blame: args.blame,
+            author_filter: args.author.clone(),
         }
     }
 
@@ -230,7 +236,7 @@ impl ScanEngine {
         }
 
         // Scan
-        let result = if path.is_file() {
+        let mut result = if path.is_file() {
             self.log_debug("Scanning single file");
             scanner.scan_file(path)
         } else {
@@ -242,6 +248,40 @@ impl ScanEngine {
             "Scanned {} files ({} bytes) in {:?}",
             result.files_scanned, result.bytes_scanned, result.scan_duration
         ));
+
+        // Enrich with blame info if requested
+        if self.blame && !result.findings.is_empty() {
+            self.log_verbose("Enriching findings with git blame info");
+            if let Ok(mut blame_cache) = BlameCache::new(path) {
+                for finding in &mut result.findings {
+                    if finding.git_info.is_none() {
+                        let file_path = if finding.location.file.is_absolute() {
+                            finding.location.file.clone()
+                        } else {
+                            path.join(&finding.location.file)
+                        };
+                        finding.git_info = blame_cache.blame_line(&file_path, finding.location.line);
+                    }
+                }
+            } else {
+                self.log_verbose("Warning: Could not open git repository for blame");
+            }
+        }
+
+        // Filter by author if requested
+        if let Some(ref author) = self.author_filter {
+            let before = result.findings.len();
+            result.findings.retain(|f| {
+                f.git_info
+                    .as_ref()
+                    .map(|gi| gi.author.to_lowercase().contains(&author.to_lowercase()))
+                    .unwrap_or(false)
+            });
+            let filtered = before - result.findings.len();
+            if filtered > 0 {
+                self.log_verbose(&format!("Filtered {} findings not matching author '{}'", filtered, author));
+            }
+        }
 
         // Apply baseline filtering
         let result = self.apply_baseline(result);
@@ -368,6 +408,8 @@ mod tests {
             min_severity: SeverityArg::Low,
             no_color: true,
             no_redact: false,
+            blame: false,
+            author: None,
             git_history: false,
             since: None,
             commits: None,

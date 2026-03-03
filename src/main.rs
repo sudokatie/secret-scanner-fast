@@ -36,6 +36,8 @@ fn main() -> ExitCode {
                 min_severity: cli::args::SeverityArg::Low,
                 no_color: false,
                 no_redact: false,
+                blame: false,
+                author: None,
                 git_history: false,
                 since: None,
                 commits: None,

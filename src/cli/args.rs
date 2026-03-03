@@ -57,6 +57,14 @@ pub struct ScanArgs {
     #[arg(long)]
     pub no_redact: bool,
 
+    /// Show git blame info (author, date, commit) for each finding
+    #[arg(long)]
+    pub blame: bool,
+
+    /// Filter findings by author (requires --blame or --git-history)
+    #[arg(long)]
+    pub author: Option<String>,
+
     /// Scan full git history
     #[arg(long)]
     pub git_history: bool,

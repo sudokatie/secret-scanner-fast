@@ -37,7 +37,7 @@ impl TextFormatter {
             finding.matched_value.clone()
         };
 
-        writeln!(
+        write!(
             w,
             "{}:{}:{}: {} [{}] {}",
             finding.location.file.display(),
@@ -46,7 +46,18 @@ impl TextFormatter {
             finding.rule_id,
             finding.severity,
             value
-        )
+        )?;
+
+        // Show git blame info if present
+        if let Some(ref git_info) = finding.git_info {
+            write!(
+                w,
+                " (by {} on {} in {})",
+                git_info.author, git_info.date, git_info.commit_sha
+            )?;
+        }
+
+        writeln!(w)
     }
 
     pub fn format_finding_colored(&self, finding: &Finding) -> io::Result<()> {
@@ -87,7 +98,20 @@ impl TextFormatter {
         } else {
             finding.matched_value.clone()
         };
-        writeln!(stdout, "{}", value)?;
+        write!(stdout, "{}", value)?;
+
+        // Show git blame info if present
+        if let Some(ref git_info) = finding.git_info {
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+            write!(
+                stdout,
+                " (by {} on {} in {})",
+                git_info.author, git_info.date, git_info.commit_sha
+            )?;
+            stdout.reset()?;
+        }
+
+        writeln!(stdout)?;
 
         Ok(())
     }
