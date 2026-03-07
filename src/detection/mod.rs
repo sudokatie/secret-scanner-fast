@@ -3,4 +3,5 @@ pub mod context;
 pub mod entropy;
 pub mod matcher;
 pub mod patterns;
+pub mod remediation;
 pub mod rules;
